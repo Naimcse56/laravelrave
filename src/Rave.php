@@ -43,15 +43,13 @@ class Rave {
      * Construct
      * @return object
      * */
-    function __construct (LaravelRequest $request, Request $unirestRequest, Body $body, $public_key, $secret_key) {
+    function __construct (LaravelRequest $request, Request $unirestRequest, Body $body) {
         $this->request = $request;
         $this->body = $body;
         $this->unirestRequest= $unirestRequest;
         $prefix = Config::get('rave.prefix');
         $overrideRefWithPrefix = false;
 
-        $this->publicKey = $public_key;
-        $this->secretKey = $secret_key;
         $this->env = Config::get('rave.env');
         $this->customLogo = Config::get('rave.logo');
         $this->customTitle = Config::get('rave.title');
@@ -146,8 +144,11 @@ class Rave {
      * Generates the final json to be used in configuring the payment call to the rave payment gateway
      * @return string
      * */
-    public function initialize($redirectURL)
+    public function initialize($redirectURL, $public_key, $secret_key)
     {
+        $this->publicKey = $public_key;
+        $this->secretKey = $secret_key;
+
         $meta = array();
         if (!empty($this->request->metadata)) {
             $meta = json_decode($this->request->metadata, true);
