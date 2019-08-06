@@ -50,6 +50,8 @@ class Rave {
         $prefix = Config::get('rave.prefix');
         $overrideRefWithPrefix = false;
 
+        $this->publicKey = Config::get('rave.publicKey');
+        $this->secretKey = Config::get('rave.secretKey');
         $this->env = Config::get('rave.env');
         $this->customLogo = Config::get('rave.logo');
         $this->customTitle = Config::get('rave.title');
@@ -114,13 +116,13 @@ class Rave {
             "custom_logo" => $this->customLogo,
             "custom_title" => $this->customTitle,
             "customer_phone" => $this->request->phonenumber,
-            "redirect_url" => $redirectURL
+            "redirect_url" => $redirectURL,
+            "hosted_payment" => 1
         );
 
         if (!empty($this->request->paymentplan)) {
             $options["payment_plan"] = $this->request->paymentplan;
         }
-
 
         ksort($options);
 
@@ -144,30 +146,20 @@ class Rave {
      * Generates the final json to be used in configuring the payment call to the rave payment gateway
      * @return string
      * */
-    public function initialize($redirectURL, $public_key, $secret_key)
+    public function initialize($redirectURL, $publicKey, $secretKey)
     {
-        $this->publicKey = $public_key;
-        $this->secretKey = $secret_key;
+        $this->publicKey = $publicKey;
+        $this->secretKey = $secretKey;
 
         $meta = array();
         if (!empty($this->request->metadata)) {
             $meta = json_decode($this->request->metadata, true);
         }
 
-        $subAccounts = array();
-        if (!empty($this->request->subaccounts)) {
-            $subAccounts = json_decode($this->request->subaccounts, true);
-        }
-
         $this->createCheckSum($redirectURL);
         $this->transactionData = array_merge($this->transactionData, array('data-integrity_hash' => $this->integrityHash), array('meta' => $meta));
 
-        if (!empty($subAccounts)) {
-          $this->transactionData = array_merge($this->transactionData, array('subaccounts' => $subAccounts));
-        }
-
         $json = json_encode($this->transactionData);
-
         echo '<html>';
         echo '<body>';
         echo '<center>Proccessing...<br /><img style="height: 50px;" src="https://media.giphy.com/media/swhRkVYLJDrCE/giphy.gif" /></center>';
@@ -183,7 +175,6 @@ class Rave {
 
         return $json;
     }
-
 
     /**
      * Handle canceled payments with this method
@@ -371,7 +362,7 @@ class Rave {
      * @param string $referenceNumber This should be the reference number of the transaction you want to verify
      * @return object
      * */
-    public function verifyTransaction($referenceNumber)
+    public function verifyTransaction($referenceNumber, $secretKey)
     {
         $this->txref = $referenceNumber;
         $this->verifyCount++;
@@ -379,7 +370,7 @@ class Rave {
 
         $data = array(
             'txref' => $this->txref,
-            'SECKEY' => $this->secretKey,
+            'SECKEY' => $secretKey,
             'last_attempt' => '1'
             // 'only_successful' => '1'
         );
@@ -671,23 +662,15 @@ class Rave {
      * Sub acccount Begin
      ********************************************************************
      ********************************************************************/
+      /**
 
-    /**
-     * Registers a new sub account on Rave.
-     *
-     * @return mixed|object
-     *
-     * @throws \Unirest\Exception
-     */
-    public function createSubAccount()
-    {
-        $meta = [];
+     * Create Sub Account
+     * @return object
+     * */
 
-        if (!empty($this->request->metadata)) {
-            $meta = json_decode($this->request->metadata, true);
-        }
-
-        $data = [
+     public function createSubAccount()
+      {
+        $data = array(
             'account_bank' => $this->request->account_bank,
             'account_number' => $this->request->account_number,
             'business_name' => $this->request->business_name,
@@ -695,22 +678,27 @@ class Rave {
             'business_contact' => $this->request->business_contact,
             'business_contact_mobile' => $this->request->business_contact_mobile,
             'business_mobile' => $this->request->business_mobile,
-            'meta' => $meta,
-            'seckey' => $this->secretKey,
-            'split_type' => $this->request->split_type,
+            'meta' => $this->meta,
+            'seckey' => $this->seckey,
+            'split_type' => $this->request->slit_type,
             'split_value' => $this->request->split_value
-        ];
+        );
 
-        // Make request to endpoint using unirest.
-        $headers = ['Content-Type' => 'application/json'];
-        $body = $this->body->json($data);
-        $url = $this->baseUrl . '/v2/gpx/subaccounts/create';
-
-        // Make `POST` request and handle response with unirest.
+         // make request to endpoint using unirest.
+         $headers = array('Content-Type' => 'application/json');
+         $body = $this->body->json($data);
+         $url = $this->baseUrl . '/v2/gpx/subaccounts/create';
+         // Make `POST` request and handle response with unirest
         $response = $this->unirestRequest->post($url, $headers, $body);
 
+        //check the status is success
+        if ($response->body && $response->body->status === "success") {
+            return $response->body;
+        }
+
         return $response->body;
-    }
+
+     }
 
      /* List all the sub accounts
      * @return object
@@ -734,7 +722,7 @@ class Rave {
      * Fetches a sub account
      * @return object
      * */
-    public function fetchSubAccount($id)
+    public function fetchSubAccount()
     {
         $id = $this->request->id;
         $url = $this->baseUrl . '/v2/gpx/subaccounts/get/'.$id.'?seckey=' . $this->secretKey;
@@ -903,7 +891,7 @@ class Rave {
         $headers = array('Content-Type' => 'application/json');
 
         // Make `POST` request and handle response with unirest
-        $response = $this->unirestRequest->post($url, $headers, $body);
+        $response = $this->unirestRequest->post($body , $url, $headers);
 
         //check the status is success
         if ($response->body) {
@@ -1021,9 +1009,9 @@ class Rave {
     /* List of Direct bank Charge
      * @return object
      * */
-     public function listofDirectBankCharge()
+     public function listofDirectBankCharge($country)
      {
-        $url = $this->baseUrl . '/flwv3-pug/getpaidx/api/flwpbf-banks.js?json=1';
+        $url = $this->baseUrl . '/flwv3-pug/getpaidx/api/flwpbf-banks.js?json=1'. '&country='. $country;
         $headers = array('Content-Type' => 'application/json');
 
         //Make `GET` request and handle response with unirest
